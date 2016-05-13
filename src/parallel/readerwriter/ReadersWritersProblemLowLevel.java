@@ -155,47 +155,50 @@ class Market {
 /**
  * Что-то вроде семафора
  */
-class Semaphore {
-    volatile int readers = 0;
-    volatile int writers = 0;
+class OwnReadWriteLock {
+    private volatile int readers = 0;
+    private volatile int writers = 0;
+    private volatile int writeRequests = 0;
 
     public synchronized void incReader() {
         readers++;
     }
 
-    public synchronized void decReaders() {
+    synchronized void lockRead() throws InterruptedException {
+        while (writers > 0 || writeRequests > 0 || readers > 0) {
+            wait();
+        }
+        readers++;
+    }
+
+    synchronized void unlockRead() throws InterruptedException {
         readers--;
         notifyAll();
     }
 
-    public synchronized int getReaders() {
-        return readers;
-    }
+    synchronized void lockWrite() throws InterruptedException {
+        writeRequests++;
 
-    /**
-     * Добавляем писателя, только в том случае, если в этот момент нет читателей
-     */
-    public synchronized void incWriters() {
-        if (readers == 0) {
-            writers++;
+        while (readers > 0 || writers > 0) {
+            wait();
         }
+        writeRequests--;
+        writers++;
     }
 
-    public synchronized void decWriters() {
+    synchronized void unlockWrite() throws InterruptedException {
         writers--;
         notifyAll();
     }
 
-    public synchronized int getWriters() {
-        return writers;
+    synchronized void decReaders() {
+        readers--;
+        notifyAll();
     }
 
-    public synchronized boolean isReadOnly() {
-        return readers > 0 && writers < 1;
-    }
-
-    public synchronized void loaf() throws InterruptedException {
-        wait();
+    synchronized void decWriters() {
+        writers--;
+        notifyAll();
     }
 }
 
@@ -206,26 +209,29 @@ class Semaphore {
 class Visitor implements Runnable {
     private Random random = new Random();
     private volatile Market market;
-    private Semaphore semaphore;
+    private volatile OwnReadWriteLock readWriteLock;
 
-    Visitor(Market market, Semaphore semaphore) {
+    Visitor(Market market, OwnReadWriteLock readWriteLock) {
         this.market = market;
-        this.semaphore = semaphore;
+        this.readWriteLock = readWriteLock;
     }
 
     public void run() {
         try {
             while (market.getGoodsCount() > 0) {
-                semaphore.incReader();
-                if (semaphore.isReadOnly()) {
+                try {
+                    readWriteLock.lockRead();
+                    if (market.getGoodsCount() < 1) {
+                        readWriteLock.unlockRead();
+                        break;
+                    }
                     System.out.println(market.showGoodByIndex(random.nextInt(market.getGoodsCount())));
-                    semaphore.decReaders();
-                } else {
-                    semaphore.loaf();
+                    readWriteLock.unlockRead();
+                } catch (InterruptedException e) {
+                    System.out.println(e.toString());
+                    readWriteLock.decReaders();
                 }
             }
-        } catch (InterruptedException e) {
-            System.out.println(e.toString());
         } catch (IndexOutOfBoundsException e) {
             System.out.println("Something went wrong: " + e);
         }
@@ -238,30 +244,33 @@ class Visitor implements Runnable {
 class Buyer implements Runnable {
     private Random random = new Random();
     private volatile Market market;
-    private Semaphore semaphore;
+    private volatile OwnReadWriteLock readWriteLock;
 
-    Buyer(Market market, Semaphore semaphore) {
+    Buyer(Market market, OwnReadWriteLock readWriteLock) {
         this.market = market;
-        this.semaphore = semaphore;
+        this.readWriteLock = readWriteLock;
     }
 
-    public synchronized void action() throws InterruptedException {
-        while (market.getGoodsCount() > 0) {
-            if (!semaphore.isReadOnly()) {
-                semaphore.incWriters();
-                System.out.println("Order: " + market.buyGoodByIndex(random.nextInt(market.getGoodsCount())));
-                semaphore.decWriters();
-            } else {
-                semaphore.loaf();
-            }
-        }
+    synchronized void action() {
+        System.out.println("Order: " + market.buyGoodByIndex(random.nextInt(market.getGoodsCount())));
     }
 
     public void run() {
         try {
-            action();
-        } catch (InterruptedException e) {
-            System.out.println(e.toString());
+            while (market.getGoodsCount() > 0) {
+                try {
+                    readWriteLock.lockWrite();
+                    if (market.getGoodsCount() < 1) {
+                        readWriteLock.unlockWrite();
+                        break;
+                    }
+                    action();
+                    readWriteLock.unlockWrite();
+                } catch (InterruptedException e) {
+                    System.out.println(e.toString());
+                    readWriteLock.decWriters();
+                }
+            }
         } catch (IndexOutOfBoundsException e) {
             System.out.println("Something went wrong: " + e);
         }
@@ -273,9 +282,9 @@ public class ReadersWritersProblemLowLevel {
 
     public static void main(String[] args) {
 
-        int productsCount = 10;
-        int visitorCount = 4;
-        int buyerCount = 8;
+        int productsCount = 100;
+        int visitorCount = 2;
+        int buyerCount = 32;
         if (args.length > 0) {
             productsCount = Integer.parseInt(args[0]);
         }
@@ -287,13 +296,13 @@ public class ReadersWritersProblemLowLevel {
         }
 
         Market market = new Market(productsCount);
-        Semaphore semaphore = new Semaphore();
+        OwnReadWriteLock readWriteLock = new OwnReadWriteLock();
 
         for (int i = 0; i < visitorCount; ++i) {
-            new Thread(new Visitor(market, semaphore)).start();
+            new Thread(new Visitor(market, readWriteLock)).start();
         }
         for (int i = 0; i < buyerCount; ++i) {
-            new Thread(new Buyer(market, semaphore)).start();
+            new Thread(new Buyer(market, readWriteLock)).start();
         }
     }
 }

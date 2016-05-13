@@ -94,13 +94,13 @@ class GoodGenerator implements Iterable<Good> {
     }
 }
 
-class Market {
+class SimpleBookStore {
 
-    private volatile LinkedList<Good> goods = new LinkedList<Good>();
+    private LinkedList<Good> books = new LinkedList<Good>();
 
-    Market(int count) {
-        for (Good good : new GoodGenerator(count)) {
-            goods.add(good);
+    SimpleBookStore(int count) {
+        for (Good book : new GoodGenerator(count)) {
+            books.add(book);
         }
     }
 
@@ -111,35 +111,55 @@ class Market {
      * @return Описание товара
      * @throws IndexOutOfBoundsException
      */
-    public synchronized String showGoodByIndex(int index) throws IndexOutOfBoundsException {
-        if (index > goods.size() - 1) {
+    public synchronized String readBookByIndex(int index) throws IndexOutOfBoundsException {
+        if (index > books.size() - 1) {
             throw new IndexOutOfBoundsException();
         }
-        return goods.get(index).toString();
+        return books.get(index).toString();
     }
 
     /**
-     * Продаем по одному товару в руки,
-     * если товар закончился, то удаляем его из магазина
+     * Сжигаем книгу
+     * если книги больше нет, то удаляем его из магазина
      *
      * @param index Индекс товара
      * @return Название товара
      * @throws IndexOutOfBoundsException
      */
-    public synchronized String buyGoodByIndex(int index) throws IndexOutOfBoundsException {
-        if (index > goods.size() - 1) {
+    public synchronized String fireBookByIndex(int index) throws IndexOutOfBoundsException {
+        if (index > books.size() - 1) {
             throw new IndexOutOfBoundsException();
         }
 
-        Good good = goods.get(index);
-        if (good.getQuantity() > 0) {
-            good.setQuantity(good.getQuantity() - 1);
+        Good book = books.get(index);
+        if (book.getQuantity() > 0) {
+            book.setQuantity(book.getQuantity() - 1);
         }
-        if (good.getQuantity() < 1) {
-            goods.remove(index);
+        if (book.getQuantity() < 1) {
+            books.remove(index);
         }
 
-        return good.toString();
+        return book.toString();
+    }
+
+    /**
+     * Добавляем книгу
+     * @param index
+     * @return
+     */
+    public synchronized String addBookByIndex(int index) throws IndexOutOfBoundsException {
+        if (index > books.size() - 1) {
+            throw new IndexOutOfBoundsException();
+        }
+
+        Good book = books.get(index);
+        if (book.getQuantity() < Integer.MAX_VALUE) {
+            book.setQuantity(book.getQuantity() + 1);
+        } else {
+            return "To much books here: " + book.toString();
+        }
+
+        return book.toString();
     }
 
     /**
@@ -148,7 +168,7 @@ class Market {
      * @return Возвращает количество товаров, которые еще в продаже
      */
     public synchronized int getGoodsCount() {
-        return goods.size();
+        return books.size();
     }
 }
 
@@ -206,26 +226,26 @@ class OwnReadWriteLock {
 /**
  * Занимается только просмотром товаров (Читатель)
  */
-class Visitor implements Runnable {
+class SimpleReader implements Runnable {
     private Random random = new Random();
-    private volatile Market market;
+    private volatile SimpleBookStore bookStore;
     private volatile OwnReadWriteLock readWriteLock;
 
-    Visitor(Market market, OwnReadWriteLock readWriteLock) {
-        this.market = market;
+    SimpleReader(SimpleBookStore bookStore, OwnReadWriteLock readWriteLock) {
+        this.bookStore = bookStore;
         this.readWriteLock = readWriteLock;
     }
 
     public void run() {
         try {
-            while (market.getGoodsCount() > 0) {
+            while (true) {
                 try {
                     readWriteLock.lockRead();
-                    if (market.getGoodsCount() < 1) {
+                    if (bookStore.getGoodsCount() < 1) {
                         readWriteLock.unlockRead();
                         break;
                     }
-                    System.out.println(market.showGoodByIndex(random.nextInt(market.getGoodsCount())));
+                    System.out.println(bookStore.readBookByIndex(random.nextInt(bookStore.getGoodsCount())));
                     readWriteLock.unlockRead();
                 } catch (InterruptedException e) {
                     System.out.println(e.toString());
@@ -241,26 +261,31 @@ class Visitor implements Runnable {
 /**
  * Занимается покупкой товаров (Писатель)
  */
-class Buyer implements Runnable {
+class SimpleWriter implements Runnable {
     private Random random = new Random();
-    private volatile Market market;
+    private volatile SimpleBookStore bookStore;
     private volatile OwnReadWriteLock readWriteLock;
 
-    Buyer(Market market, OwnReadWriteLock readWriteLock) {
-        this.market = market;
+    SimpleWriter(SimpleBookStore bookStore, OwnReadWriteLock readWriteLock) {
+        this.bookStore = bookStore;
         this.readWriteLock = readWriteLock;
     }
 
     synchronized void action() {
-        System.out.println("Order: " + market.buyGoodByIndex(random.nextInt(market.getGoodsCount())));
+        if (random.nextBoolean()) {
+            System.out.println("Writer: " + bookStore.fireBookByIndex(random.nextInt(bookStore.getGoodsCount())));
+        } else {
+            System.out.println("Writer: " + bookStore.fireBookByIndex(random.nextInt(bookStore.getGoodsCount())));
+        }
+
     }
 
     public void run() {
         try {
-            while (market.getGoodsCount() > 0) {
+            while (true) {
                 try {
                     readWriteLock.lockWrite();
-                    if (market.getGoodsCount() < 1) {
+                    if (bookStore.getGoodsCount() < 1) {
                         readWriteLock.unlockWrite();
                         break;
                     }
@@ -295,14 +320,14 @@ public class ReadersWritersProblemLowLevel {
             buyerCount = Integer.parseInt(args[2]);
         }
 
-        Market market = new Market(productsCount);
+        SimpleBookStore market = new SimpleBookStore(productsCount);
         OwnReadWriteLock readWriteLock = new OwnReadWriteLock();
 
         for (int i = 0; i < visitorCount; ++i) {
-            new Thread(new Visitor(market, readWriteLock)).start();
+            new Thread(new SimpleReader(market, readWriteLock)).start();
         }
         for (int i = 0; i < buyerCount; ++i) {
-            new Thread(new Buyer(market, readWriteLock)).start();
+            new Thread(new SimpleWriter(market, readWriteLock)).start();
         }
     }
 }

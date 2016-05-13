@@ -275,7 +275,7 @@ class SimpleWriter implements Runnable {
         if (random.nextBoolean()) {
             System.out.println("Writer: " + bookStore.fireBookByIndex(random.nextInt(bookStore.getGoodsCount())));
         } else {
-            System.out.println("Writer: " + bookStore.fireBookByIndex(random.nextInt(bookStore.getGoodsCount())));
+            System.out.println("Writer: " + bookStore.addBookByIndex(random.nextInt(bookStore.getGoodsCount())));
         }
 
     }

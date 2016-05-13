@@ -21,7 +21,7 @@ class SmartMarket {
      * @return Описание товара
      * @throws IndexOutOfBoundsException
      */
-    public String showGoodByIndex(int index) {
+    String showGoodByIndex(int index) {
 
         if (index > goods.size() - 1) {
             throw new IndexOutOfBoundsException();
@@ -29,7 +29,7 @@ class SmartMarket {
         return goods.get(index).toString();
     }
 
-    public int getGoodsCount() {
+    int getGoodsCount() {
 
         return goods.size();
 
@@ -43,7 +43,7 @@ class SmartMarket {
      * @return Название товара
      * @throws IndexOutOfBoundsException
      */
-    public String buyGoodByIndex(int index) {
+    String buyGoodByIndex(int index) {
         if (index > goods.size() - 1) {
             throw new IndexOutOfBoundsException();
         }
